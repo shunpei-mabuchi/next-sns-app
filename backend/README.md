@@ -31,6 +31,84 @@
 $ npm install
 ```
 
+## ローカルDB（Docker Compose + MySQL 8.4）
+
+開発用のMySQLをDocker Composeで起動する。Prismaの導入・マイグレーションは次の工程で行う（現時点ではNestJSからDBへ接続しない）。
+
+### 前提条件
+
+- Docker Engine と Docker Compose v2（`docker compose version` が実行できること）
+- ホストの `127.0.0.1:3307` が他のプロセスに使われていないこと
+
+### `.env` の準備
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+`.env` の `MYSQL_PASSWORD` と `MYSQL_ROOT_PASSWORD` を自分の値に変更する。`DATABASE_URL` / `SHADOW_DATABASE_URL` 内のパスワードも `MYSQL_PASSWORD` と同じ値にする。`.env` はGitにコミットしない（`.gitignore`で除外済み。`.env.example` のみ管理対象）。
+
+| 変数 | 用途 |
+| --- | --- |
+| `MYSQL_DATABASE` | アプリ用データベース名 |
+| `MYSQL_SHADOW_DATABASE` | `prisma migrate dev` 用のShadow Database名 |
+| `MYSQL_USER` / `MYSQL_PASSWORD` | アプリ・Prisma接続用の開発ユーザー |
+| `MYSQL_ROOT_PASSWORD` | MySQLのrootパスワード（コンテナ初期化専用。アプリ接続には使わない） |
+| `DATABASE_URL` | Prismaが使う接続URL |
+| `SHADOW_DATABASE_URL` | Prismaが使うShadow Databaseの接続URL |
+
+### 起動・確認・停止
+
+```bash
+docker compose up -d     # 起動（バックグラウンド）
+docker compose ps        # 状態確認。STATUS が healthy になれば起動完了
+docker compose down      # 停止・コンテナ削除（データは残る）
+```
+
+### MySQLの接続確認
+
+コンテナ内のmysqlクライアントで、開発ユーザーとして接続できることを確認する。
+
+```bash
+docker exec -it pibit-mysql sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
+```
+
+ホストから接続する場合は `127.0.0.1:3307` を指定する（`mysql` クライアントが必要）。
+
+```bash
+mysql -h 127.0.0.1 -P 3307 -u <MYSQL_USER> -p <MYSQL_DATABASE>
+```
+
+ポートは `127.0.0.1` にのみ公開しており、同一ネットワークの他のPCからは接続できない。
+
+### データの永続化
+
+データはDocker Volume `mysql_data`（Composeのプロジェクト名が付いた `backend_mysql_data`）に保存される。`docker compose down` やコンテナの再作成ではデータは消えない。
+
+### `down -v` の注意
+
+```bash
+docker compose down -v
+```
+
+`-v` を付けるとVolumeも削除され、**DBのデータがすべて消える**。作り直したい場合のみ実行する。なお、Shadow Databaseの作成と権限付与（`docker/mysql/init/`）は空のVolumeでの初回起動時にのみ実行される。`.env` のDB名・ユーザー名・パスワードを変更した場合も、反映には `down -v` による再作成が必要。
+
+### Shadow Databaseと権限
+
+`prisma migrate dev` はShadow Databaseを使う。このプロジェクトでは専用の `pibit_shadow`（`MYSQL_SHADOW_DATABASE`）を初期化スクリプトで作成し、開発ユーザーの権限を「アプリ用DB」と「Shadow Database」の2つに限定している。グローバル権限（`CREATE DATABASE` など）は付与していない。Prisma導入後は、`schema.prisma` の `datasource` で `shadowDatabaseUrl = env("SHADOW_DATABASE_URL")` を指定する想定（次の工程で確認する）。
+
+### Prismaから接続する際の `DATABASE_URL` の構造
+
+```text
+mysql://<ユーザー名>:<パスワード>@<ホスト>:<ポート>/<データベース名>
+mysql://pibit_user:<パスワード>@127.0.0.1:3307/pibit_dev
+```
+
+- ホスト側から接続するため、ポートはコンテナ内の `3306` ではなく公開ポートの `3307`
+- パスワードに `@` `:` `/` などの記号を含む場合はURLエンコードする
+- rootアカウントではなく `MYSQL_USER` で接続する
+
 ## Compile and run the project
 
 ```bash
