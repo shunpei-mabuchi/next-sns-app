@@ -1,0 +1,90 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum NotificationType {
+  LIKE
+  FOLLOW
+  REPOST
+}
+
+model User {
+  id                     String         @id @default(uuid())
+  username               String         @unique @db.VarChar(20)
+  displayName            String
+  pieces                 Piece[]
+  likes                  Like[]
+  following              Follow[]       @relation("Follower")
+  followers              Follow[]       @relation("Followee")
+  reposts                Repost[]
+  receivedNotifications  Notification[] @relation("ReceivedNotifications")
+  triggeredNotifications Notification[] @relation("TriggeredNotifications")
+}
+
+model Piece {
+  author        User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  id            String         @id @default(uuid())
+  authorId      String
+  content       String         @db.VarChar(150)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  likes         Like[]
+  reposts       Repost[]
+  notifications Notification[]
+}
+
+model Like {
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  piece     Piece    @relation(fields: [pieceId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
+  userId    String
+  pieceId   String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, pieceId])
+}
+
+model Follow {
+  id         String   @id @default(uuid())
+  followerId String
+  followeeId String
+  follower   User     @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  followee   User     @relation("Followee", fields: [followeeId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([followerId, followeeId])
+}
+
+model Repost {
+  id        String   @id @default(uuid())
+  userId    String
+  pieceId   String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  piece     Piece    @relation(fields: [pieceId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, pieceId])
+}
+
+model Notification {
+  id          String           @id @default(uuid())
+  recipientId String
+  actorId     String
+  pieceId     String?
+  type        NotificationType
+  createdAt   DateTime         @default(now())
+  readAt      DateTime?
+  piece       Piece?           @relation(fields: [pieceId], references: [id], onDelete: Cascade)
+  recipient   User             @relation("ReceivedNotifications", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor       User             @relation("TriggeredNotifications", fields: [actorId], references: [id], onDelete: Cascade)
+}
